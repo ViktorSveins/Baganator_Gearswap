@@ -1,0 +1,7 @@
+deploy.sh
+docs/
+.claude/
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
