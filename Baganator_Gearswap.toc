@@ -1,7 +1,7 @@
 ## Interface: 20505
 ## Title: Baganator Gearswap
 ## Notes: Map Baganator bag slots to equipment slots and swap gear from those slots.
-## Author: Viktor
+## Author: ViktorSveins
 ## Version: 0.1.0
 ## Dependencies: Baganator
 ## SavedVariablesPerCharacter: BAGANATOR_GEARSWAP_DB

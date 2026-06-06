@@ -35,6 +35,13 @@ You can also use `/baganatorgearswap` instead of `/bgswap`.
 3. Make sure **Baganator** is installed and enabled
 4. Restart the client or `/reload`
 
+## Dependency
+
+Baganator Gearswap requires **Baganator**:
+
+- [Baganator on GitHub](https://github.com/TheMouseNest/Baganator)
+- [Baganator on CurseForge](https://www.curseforge.com/wow/addons/baganator)
+
 ## Author
 
 **ViktorSveins**
