@@ -1,0 +1,10 @@
+package-as: Baganator_Gearswap
+
+ignore:
+  - .github
+  - .gitignore
+  - .pkgmeta
+  - images
+  - LICENSE
+  - README.md
+

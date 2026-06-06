@@ -42,6 +42,28 @@ Baganator Gearswap requires **Baganator**:
 - [Baganator on GitHub](https://github.com/TheMouseNest/Baganator)
 - [Baganator on CurseForge](https://www.curseforge.com/wow/addons/baganator)
 
+## Release
+
+Releases are packaged by [BigWigsMods/packager](https://github.com/BigWigsMods/packager) when a version tag is pushed.
+
+One-time CurseForge setup:
+
+1. Create the Baganator Gearswap project on CurseForge
+2. Add the CurseForge project ID to `Baganator_Gearswap.toc`:
+
+   ```toc
+   ## X-Curse-Project-ID: YOUR_PROJECT_ID
+   ```
+
+3. Create a CurseForge API token and add it to GitHub repository secrets as `CF_API_KEY`
+
+To publish a release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## Author
 
 **ViktorSveins**
