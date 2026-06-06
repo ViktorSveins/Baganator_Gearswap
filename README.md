@@ -1,5 +1,7 @@
 # Baganator Gearswap
 
+[![CurseForge](https://cf.way2muchnoise.eu/1566454.svg?badge_style=for_the_badge)](https://www.curseforge.com/wow/addons/baganator-gearswap)
+
 Map Baganator bag slots to equipment slots and swap gear from those slots with a slash command. Built for **WoW TBC Classic Anniversary (2.5.5)**.
 
 ![Baganator Gearswap preview](images/preview.png)
