@@ -99,6 +99,8 @@ local UpdateAssignmentUI
 local UpdateButton
 local SetBagHoverHighlight
 local ClearBagHoverHighlight
+local safeSortRegistered = false
+local safeSortState
 
 local function Message(text)
   print(LINK_FONT_COLOR:WrapTextInColorCode(DISPLAY_NAME) .. ": " .. text)
@@ -524,10 +526,277 @@ local function IsTwoHander(itemLink)
 end
 
 local function GetContainerItemLinkSafe(bagID, slotID)
-  if C_Container.GetContainerItemLink then
+  if C_Container and C_Container.GetContainerItemLink then
     return C_Container.GetContainerItemLink(bagID, slotID)
   end
   return GetContainerItemLink(bagID, slotID)
+end
+
+local function GetContainerItemInfoSafe(bagID, slotID)
+  if C_Container and C_Container.GetContainerItemInfo then
+    local info = C_Container.GetContainerItemInfo(bagID, slotID)
+    if info then
+      return info
+    end
+  end
+
+  local texture, count, locked, quality, readable, lootable, link, isFiltered, noValue, itemID = GetContainerItemInfo(bagID, slotID)
+  if not itemID and link then
+    itemID = tonumber(link:match("item:(%d+)"))
+  end
+  return {
+    iconFileID = texture,
+    stackCount = count,
+    isLocked = locked,
+    quality = quality,
+    isReadable = readable,
+    hasLoot = lootable,
+    hyperlink = link,
+    isFiltered = isFiltered,
+    hasNoValue = noValue,
+    itemID = itemID,
+  }
+end
+
+local function PickupContainerItemSafe(bagID, slotID)
+  if C_Container and C_Container.PickupContainerItem then
+    C_Container.PickupContainerItem(bagID, slotID)
+  else
+    PickupContainerItem(bagID, slotID)
+  end
+end
+
+local function GetContainerItemGUIDSafe(bagID, slotID)
+  if ItemLocation and C_Item and C_Item.GetItemGUID then
+    local location = ItemLocation:CreateFromBagAndSlot(bagID, slotID)
+    if location and C_Item.DoesItemExist(location) then
+      return C_Item.GetItemGUID(location)
+    end
+  end
+end
+
+local function CompareSortValues(a, b)
+  if a == b then
+    return nil
+  elseif a == nil then
+    return false
+  elseif b == nil then
+    return true
+  elseif type(a) == "string" and type(b) == "string" then
+    return a < b
+  else
+    return a < b
+  end
+end
+
+local function BuildSafeSortItem(bagID, slotID, originalIndex)
+  local info = GetContainerItemInfoSafe(bagID, slotID)
+  if not info or not info.itemID then
+    return nil
+  end
+
+  local itemLink = info.hyperlink or GetContainerItemLinkSafe(bagID, slotID)
+  local guid = GetContainerItemGUIDSafe(bagID, slotID)
+  if not guid then
+    return nil, "item GUIDs are unavailable"
+  end
+
+  local itemName, _, quality, itemLevel = GetItemInfo(itemLink or info.itemID)
+  local classID, subClassID = select(6, C_Item.GetItemInfoInstant(itemLink or info.itemID))
+  local invType = C_Item.GetItemInventoryTypeByID(info.itemID) or 0
+
+  return {
+    bagID = bagID,
+    slotID = slotID,
+    guid = guid,
+    itemID = info.itemID,
+    itemLink = itemLink,
+    originalIndex = originalIndex,
+    priority = info.itemID == 6948 and 0 or 1000,
+    classID = classID or 999,
+    invType = invType,
+    subClassID = subClassID or 999,
+    quality = -(quality or 0),
+    itemLevel = -(itemLevel or 0),
+    itemName = (itemName or itemLink or tostring(info.itemID)):lower(),
+  }
+end
+
+local function SortSafeSortItems(items, isReverse)
+  table.sort(items, function(a, b)
+    local keys = {"priority", "classID", "invType", "subClassID", "quality", "itemLevel", "itemName", "itemID", "originalIndex"}
+    for _, key in ipairs(keys) do
+      local result = CompareSortValues(a[key], b[key])
+      if result ~= nil then
+        if isReverse then
+          return not result
+        end
+        return result
+      end
+    end
+    return false
+  end)
+end
+
+local function BuildSafeSortState(isReverse)
+  local assignedLocations = BuildLocationMap()
+  local locations = {}
+  local items = {}
+  local skippedAssigned = 0
+  local skippedUnidentifiable = 0
+
+  for bagID in pairs(BAG_IDS) do
+    local numSlots = C_Container.GetContainerNumSlots(bagID)
+    for slotID = 1, numSlots do
+      local key = LocationKey(bagID, slotID)
+      if assignedLocations[key] then
+        skippedAssigned = skippedAssigned + 1
+      else
+        local location = {bagID = bagID, slotID = slotID, key = key}
+        local item, reason = BuildSafeSortItem(bagID, slotID, #locations + 1)
+        if item then
+          table.insert(locations, location)
+          table.insert(items, item)
+        elseif reason then
+          skippedUnidentifiable = skippedUnidentifiable + 1
+        else
+          table.insert(locations, location)
+        end
+      end
+    end
+  end
+
+  table.sort(locations, function(a, b)
+    if a.bagID == b.bagID then
+      return isReverse and a.slotID > b.slotID or a.slotID < b.slotID
+    end
+    return isReverse and a.bagID > b.bagID or a.bagID < b.bagID
+  end)
+  SortSafeSortItems(items, isReverse)
+
+  local desiredByLocation = {}
+  for index, item in ipairs(items) do
+    desiredByLocation[locations[index].key] = item.guid
+  end
+
+  return {
+    locations = locations,
+    desiredByLocation = desiredByLocation,
+    skippedAssigned = skippedAssigned,
+    skippedUnidentifiable = skippedUnidentifiable,
+    started = GetTime(),
+    moves = 0,
+  }
+end
+
+local function ScanSafeSortLocations(state)
+  local currentByLocation = {}
+  local locationByGUID = {}
+  local emptyLocations = {}
+
+  for _, location in ipairs(state.locations) do
+    local info = GetContainerItemInfoSafe(location.bagID, location.slotID)
+    if info and info.isLocked then
+      return nil, nil, nil, true
+    end
+    if info and info.itemID then
+      local guid = GetContainerItemGUIDSafe(location.bagID, location.slotID)
+      if guid then
+        currentByLocation[location.key] = guid
+        locationByGUID[guid] = location
+      end
+    else
+      table.insert(emptyLocations, location)
+    end
+  end
+
+  return currentByLocation, locationByGUID, emptyLocations, false
+end
+
+local function ContinueSafeSort()
+  local state = safeSortState
+  if not state then
+    return
+  end
+  if InCombatLockdown and InCombatLockdown() then
+    safeSortState = nil
+    Message("Gearswap-safe sort stopped: combat lockdown.")
+    return
+  end
+  if CursorHasItem and CursorHasItem() then
+    safeSortState = nil
+    Message("Gearswap-safe sort stopped: cursor is holding an item.")
+    return
+  end
+  if GetTime() - state.started > 15 then
+    safeSortState = nil
+    Message("Gearswap-safe sort stopped: timed out waiting for bag moves.")
+    return
+  end
+
+  local currentByLocation, locationByGUID, emptyLocations, locked = ScanSafeSortLocations(state)
+  if locked then
+    C_Timer.After(0.15, ContinueSafeSort)
+    return
+  end
+
+  for _, location in ipairs(state.locations) do
+    local currentGUID = currentByLocation[location.key]
+    local desiredGUID = state.desiredByLocation[location.key]
+    if currentGUID ~= desiredGUID then
+      local source
+      if desiredGUID then
+        source = locationByGUID[desiredGUID]
+      elseif #emptyLocations > 0 then
+        source = location
+        location = emptyLocations[1]
+      end
+
+      if not source then
+        safeSortState = nil
+        Message("Gearswap-safe sort stopped: an item moved unexpectedly.")
+        return
+      end
+
+      ClearCursor()
+      PickupContainerItemSafe(source.bagID, source.slotID)
+      PickupContainerItemSafe(location.bagID, location.slotID)
+      ClearCursor()
+
+      state.moves = state.moves + 1
+      C_Timer.After(0.2, ContinueSafeSort)
+      return
+    end
+  end
+
+  safeSortState = nil
+  local details = state.skippedAssigned .. " assigned slot" .. (state.skippedAssigned == 1 and "" or "s") .. " preserved."
+  if state.skippedUnidentifiable > 0 then
+    details = details .. " " .. state.skippedUnidentifiable .. " item(s) were left in place because no item GUID was available."
+  end
+  Message("Gearswap-safe sort complete; " .. details)
+  RefreshButtons()
+end
+
+function addon.SortBagsPreservingAssignments(isReverse)
+  if safeSortState then
+    Message("Gearswap-safe sort is already running.")
+    return
+  end
+  if InCombatLockdown and InCombatLockdown() then
+    Message("Cannot sort bags in combat.")
+    return
+  end
+  if CursorHasItem and CursorHasItem() then
+    Message("Cannot sort bags while the cursor is holding an item.")
+    return
+  end
+
+  safeSortState = BuildSafeSortState(isReverse)
+  if safeSortState.skippedAssigned == 0 then
+    Message("Gearswap-safe sort running with no assigned slots to preserve.")
+  end
+  ContinueSafeSort()
 end
 
 local function BuildSwitchQueue()
@@ -959,6 +1228,17 @@ local function RegisterBaganatorIntegration()
   if not Baganator or not Baganator.API or not Baganator.API.Skins then
     Message("Baganator API not available.")
     return
+  end
+
+  if not safeSortRegistered and Baganator.API.RegisterContainerSort and Baganator.API.Constants and Baganator.API.Constants.ContainerType then
+    Baganator.API.RegisterContainerSort("Gearswap-safe", "baganator_gearswap", function(isReverse, containerType)
+      if containerType == Baganator.API.Constants.ContainerType.Backpack then
+        addon.SortBagsPreservingAssignments(isReverse)
+      else
+        Message("Gearswap-safe sorting only supports the backpack.")
+      end
+    end)
+    safeSortRegistered = true
   end
 
   Baganator.API.Skins.RegisterListener(function(details)
