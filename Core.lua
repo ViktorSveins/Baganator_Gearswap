@@ -101,6 +101,7 @@ local SetBagHoverHighlight
 local ClearBagHoverHighlight
 local safeSortRegistered = false
 local safeSortState
+local SAFE_SORT_ID = "baganator_gearswap"
 
 local function Message(text)
   print(LINK_FONT_COLOR:WrapTextInColorCode(DISPLAY_NAME) .. ": " .. text)
@@ -126,6 +127,9 @@ local function EnsureDB()
   end
   if BAGANATOR_GEARSWAP_DB.options.showAssignedBorders == nil then
     BAGANATOR_GEARSWAP_DB.options.showAssignedBorders = true
+  end
+  if BAGANATOR_GEARSWAP_DB.options.autoUseSafeSort == nil then
+    BAGANATOR_GEARSWAP_DB.options.autoUseSafeSort = true
   end
 end
 
@@ -165,6 +169,60 @@ local function BuildLocationMap()
     end
   end
   return result
+end
+
+local function HasMappings()
+  return next(GetDB().mappings) ~= nil
+end
+
+local function GetBaganatorProfile()
+  if type(BAGANATOR_CONFIG) ~= "table" or type(BAGANATOR_CONFIG.Profiles) ~= "table" then
+    return nil
+  end
+  return BAGANATOR_CONFIG.Profiles[BAGANATOR_CURRENT_PROFILE] or BAGANATOR_CONFIG.Profiles.DEFAULT
+end
+
+local function GetBaganatorSortMethod()
+  local profile = GetBaganatorProfile()
+  return profile and profile.sort_method or "type"
+end
+
+local function SetBaganatorSortMethod(method)
+  local profile = GetBaganatorProfile()
+  if not profile then
+    return false
+  end
+  if profile.sort_method == method then
+    return true
+  end
+  profile.sort_method = method
+  if Baganator and Baganator.CallbackRegistry then
+    Baganator.CallbackRegistry:TriggerEvent("SettingChanged", "sort_method")
+  end
+  return true
+end
+
+local function UpdateSafeSortSelection()
+  local db = GetDB()
+  if not db.options.autoUseSafeSort or not safeSortRegistered then
+    return
+  end
+
+  if HasMappings() then
+    local current = GetBaganatorSortMethod()
+    if current and current ~= SAFE_SORT_ID then
+      db.options.previousSortMethod = current
+      if SetBaganatorSortMethod(SAFE_SORT_ID) then
+        Message("Baganator sort method set to Gearswap-safe.")
+      end
+    end
+  elseif db.options.previousSortMethod then
+    local previous = db.options.previousSortMethod
+    db.options.previousSortMethod = nil
+    if GetBaganatorSortMethod() == SAFE_SORT_ID and SetBaganatorSortMethod(previous) then
+      Message("Baganator sort method restored to " .. previous .. ".")
+    end
+  end
 end
 
 local function GetNextUnassignedSlotID(afterSlotID)
@@ -430,6 +488,7 @@ function addon.AssignSlot(equipSlotID, bagID, slotID)
   end
   db.mappings[MappingKey(equipSlotID)] = {bagID = bagID, slotID = slotID}
   Message(GetSlotLabel(equipSlotID) .. " assigned to bag " .. bagID .. ", slot " .. slotID .. ".")
+  UpdateSafeSortSelection()
   RefreshButtons()
 end
 
@@ -437,6 +496,7 @@ function addon.ClearSlot(equipSlotID)
   if GetDB().mappings[MappingKey(equipSlotID)] then
     GetDB().mappings[MappingKey(equipSlotID)] = nil
     Message(GetSlotLabel(equipSlotID) .. " mapping cleared.")
+    UpdateSafeSortSelection()
     RefreshButtons()
   end
 end
@@ -451,6 +511,7 @@ function addon.ClearLocation(bagID, slotID)
   end
   if removed then
     Message("Mapping cleared from bag " .. bagID .. ", slot " .. slotID .. ".")
+    UpdateSafeSortSelection()
     RefreshButtons()
   end
 end
@@ -1217,6 +1278,7 @@ local function SlashHandler(input)
   elseif command == "clear" then
     GetDB().mappings = {}
     Message("All mappings cleared.")
+    UpdateSafeSortSelection()
     RefreshButtons()
     UpdateAssignmentUI()
   else
@@ -1239,6 +1301,7 @@ local function RegisterBaganatorIntegration()
       end
     end)
     safeSortRegistered = true
+    UpdateSafeSortSelection()
   end
 
   Baganator.API.Skins.RegisterListener(function(details)
